@@ -3,7 +3,6 @@ use std::sync::{Mutex, MutexGuard};
 use anyhow::{format_err, Result};
 use hwloc::{Bitmap, ObjectType, Topology, TopologyObject, CPUBIND_THREAD};
 use lazy_static::lazy_static;
-use libc::group;
 use log::{debug, info, warn};
 use serde_json::from_str;
 use storage_proofs_core::settings::SETTINGS;
@@ -177,7 +176,7 @@ fn core_groups(cores_per_unit: usize, skip_cores: String) -> Option<Vec<Mutex<Ve
         );
     }
 
-    let mut skips: Vec<CoreIndex>;
+    let skips: Vec<CoreIndex>;
     if skip_cores.eq("") {
         skips = Vec::new();
     } else {
