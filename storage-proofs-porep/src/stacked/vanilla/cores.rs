@@ -3,7 +3,9 @@ use std::sync::{Mutex, MutexGuard};
 use anyhow::{format_err, Result};
 use hwloc::{Bitmap, ObjectType, Topology, TopologyObject, CPUBIND_THREAD};
 use lazy_static::lazy_static;
+use libc::group;
 use log::{debug, info, warn};
+use serde_json::from_str;
 use storage_proofs_core::settings::SETTINGS;
 
 type CoreGroup = Vec<CoreIndex>;
@@ -12,8 +14,9 @@ lazy_static! {
     pub static ref CORE_GROUPS: Option<Vec<Mutex<CoreGroup>>> = {
         let num_producers = &SETTINGS.multicore_sdr_producers;
         let cores_per_unit = num_producers + 1;
+        let skip_cores = SETTINGS.multicore_sdr_skip_cores.clone();
 
-        core_groups(cores_per_unit)
+        core_groups(cores_per_unit, skip_cores)
     };
 }
 
@@ -126,7 +129,7 @@ fn get_core_by_index(topo: &Topology, index: CoreIndex) -> Result<&TopologyObjec
     }
 }
 
-fn core_groups(cores_per_unit: usize) -> Option<Vec<Mutex<Vec<CoreIndex>>>> {
+fn core_groups(cores_per_unit: usize, skip_cores: String) -> Option<Vec<Mutex<Vec<CoreIndex>>>> {
     let topo = TOPOLOGY.lock().expect("poisoned lock");
 
     let core_depth = match topo.depth_or_below_for_type(&ObjectType::Core) {
@@ -174,6 +177,17 @@ fn core_groups(cores_per_unit: usize) -> Option<Vec<Mutex<Vec<CoreIndex>>>> {
         );
     }
 
+    let mut skips: Vec<CoreIndex>;
+    if skip_cores.eq("") {
+        skips = Vec::new();
+    } else {
+        skips = skip_cores.split(",")
+            .into_iter()
+            .map(|core|CoreIndex(from_str::<usize>(core).unwrap()))
+            .collect::<Vec<_>>();
+        println!("{:?}",skips);
+    }
+
     let core_groups = (0..group_count)
         .map(|i| {
             (0..group_size)
@@ -189,6 +203,7 @@ fn core_groups(cores_per_unit: usize) -> Option<Vec<Mutex<Vec<CoreIndex>>>> {
     Some(
         core_groups
             .iter()
+            .filter(|group| !skips.contains(group.split_first().unwrap().0))
             .map(|group| Mutex::new(group.clone()))
             .collect::<Vec<_>>(),
     )
@@ -200,7 +215,8 @@ mod tests {
 
     #[test]
     fn test_cores() {
-        core_groups(2);
+        let cores = core_groups(2, String::from("0,2"));
+        println!("{:?}", cores);
     }
 
     #[test]
