@@ -1,10 +1,11 @@
 use std::fs::{self, metadata, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{ensure, Context, Result};
 use bellperson::groth16;
-use bincode::{deserialize, serialize};
+use bincode::{Config, deserialize, serialize};
 use blstrs::{Bls12, Scalar as Fr};
 use filecoin_hashers::{Domain, Hasher};
 use log::{info, trace};
@@ -24,6 +25,7 @@ use storage_proofs_core::{
     sector::SectorId,
     util::default_rows_to_discard,
     Data,
+    settings::SETTINGS,
 };
 use storage_proofs_porep::stacked::{
     self, generate_replica_id, ChallengeRequirements, StackedCompound, StackedDrg, Tau,
@@ -48,6 +50,24 @@ use crate::{
         SealPreCommitOutput, SealPreCommitPhase1Output, SectorSize, Ticket, BINARY_ARITY,
     },
 };
+
+struct ShareVariable {
+    config: StoreConfig,
+    commitment: Commitment,
+}
+
+impl ShareVariable {
+    fn new() -> ShareVariable {
+        ShareVariable{
+            config: Default::default(),
+            commitment: [0u8; 32],
+        }
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref SHARE_VARIABLE: Mutex<ShareVariable> = Mutex::new(ShareVariable::new());
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn seal_pre_commit_phase1<R, S, T, Tree: 'static + MerkleTreeTrait>(
@@ -165,6 +185,12 @@ where
 
         Ok((config, comm_d))
     })?;
+
+    SHARE_VARIABLE.lock().unwrap().config = config;
+    SHARE_VARIABLE.lock().unwrap().commitment = comm_d;
+
+    let config = SHARE_VARIABLE.lock().unwrap().config.clone();
+    let comm_d = SHARE_VARIABLE.lock().unwrap().commitment.clone();
 
     trace!("verifying pieces");
 
