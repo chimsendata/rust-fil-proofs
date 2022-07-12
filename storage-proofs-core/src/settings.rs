@@ -31,6 +31,7 @@ pub struct Settings {
     pub multicore_sdr_producer_stride: u64,
     pub multicore_sdr_lookahead: usize,
     pub multicore_sdr_skip_cores: String,
+    pub multicore_sdr_core_plan: String,
     pub merkle_tree_cache: String,
 }
 
@@ -57,6 +58,7 @@ impl Default for Settings {
             multicore_sdr_producer_stride: 128,
             multicore_sdr_lookahead: 800,
             multicore_sdr_skip_cores: "".to_string(),
+            multicore_sdr_core_plan: "DELL7525".to_string(),
             merkle_tree_cache: "/mnt/sealing/tree".to_string(),
         }
     }
