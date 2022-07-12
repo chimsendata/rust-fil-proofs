@@ -131,6 +131,12 @@ fn get_core_by_index(topo: &Topology, index: CoreIndex) -> Result<&TopologyObjec
 fn core_groups(cores_per_unit: usize, skip_cores: String) -> Option<Vec<Mutex<Vec<CoreIndex>>>> {
     let topo = TOPOLOGY.lock().expect("poisoned lock");
 
+    let a = topo.objects_with_type(&ObjectType::NUMANode)
+        .expect("objects_with_type failed");
+
+    for b in a {
+    }
+
     let core_depth = match topo.depth_or_below_for_type(&ObjectType::Core) {
         Ok(depth) => depth,
         Err(_) => return None,
@@ -214,6 +220,7 @@ mod tests {
 
     #[test]
     fn test_cores() {
+        println!("test_cores");
         let cores = core_groups(2, String::from("0,2"));
         println!("{:?}", cores);
     }
