@@ -1,7 +1,6 @@
 use std::fs::{self, metadata, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use anyhow::{ensure, Context, Result};
 use bellperson::groth16;
@@ -25,7 +24,6 @@ use storage_proofs_core::{
     sector::SectorId,
     util::default_rows_to_discard,
     Data,
-    settings::SETTINGS,
 };
 use storage_proofs_porep::stacked::{
     self, generate_replica_id, ChallengeRequirements, StackedCompound, StackedDrg, Tau,
@@ -51,24 +49,6 @@ use crate::{
     },
 };
 
-struct ShareVariable {
-    config: StoreConfig,
-    commitment: Commitment,
-}
-
-impl ShareVariable {
-    fn new() -> ShareVariable {
-        ShareVariable{
-            config: Default::default(),
-            commitment: [0u8; 32],
-        }
-    }
-}
-
-lazy_static::lazy_static! {
-    static ref SHARE_VARIABLE: Mutex<ShareVariable> = Mutex::new(ShareVariable::new());
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn seal_pre_commit_phase1<R, S, T, Tree: 'static + MerkleTreeTrait>(
     porep_config: PoRepConfig,
@@ -80,10 +60,10 @@ pub fn seal_pre_commit_phase1<R, S, T, Tree: 'static + MerkleTreeTrait>(
     ticket: Ticket,
     piece_infos: &[PieceInfo],
 ) -> Result<SealPreCommitPhase1Output<Tree>>
-where
-    R: AsRef<Path>,
-    S: AsRef<Path>,
-    T: AsRef<Path>,
+    where
+        R: AsRef<Path>,
+        S: AsRef<Path>,
+        T: AsRef<Path>,
 {
     info!("seal_pre_commit_phase1:start: {:?}", sector_id);
 
@@ -102,17 +82,35 @@ where
     );
 
     let sector_bytes = usize::from(PaddedBytesAmount::from(porep_config));
-    fs::metadata(&in_path).with_context(|| format!("could not read in_path={:?})", in_path.as_ref().display()))?;
+    fs::metadata(&in_path)
+        .with_context(|| format!("could not read in_path={:?})", in_path.as_ref().display()))?;
 
-    fs::metadata(&out_path).with_context(|| format!("could not read out_path={:?}", out_path.as_ref().display()))?;
+    fs::metadata(&out_path)
+        .with_context(|| format!("could not read out_path={:?}", out_path.as_ref().display()))?;
 
-    let tree_parent = SETTINGS.merkle_tree_cache.clone();
-    let tree_path = format!("{}/{}", tree_parent, "tree.dat");
-    let pad_path = format!("{}/{}", tree_parent, "pad.dat");
-    let comm_d_path = format!("{}/{}", cache_path.as_ref().to_str().unwrap(), "sc-02-data-tree-d.dat");
-    println!("{}", tree_path);
-    println!("{}", pad_path);
-    println!("{}", comm_d_path);
+    // Copy unsealed data to output location, where it will be sealed in place.
+    fs::copy(&in_path, &out_path).with_context(|| {
+        format!(
+            "could not copy in_path={:?} to out_path={:?}",
+            in_path.as_ref().display(),
+            out_path.as_ref().display()
+        )
+    })?;
+
+    let f_data = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&out_path)
+        .with_context(|| format!("could not open out_path={:?}", out_path.as_ref().display()))?;
+
+    // Zero-pad the data to the requested size by extending the underlying file if needed.
+    f_data.set_len(sector_bytes as u64)?;
+
+    let data = unsafe {
+        MmapOptions::new()
+            .map_mut(&f_data)
+            .with_context(|| format!("could not mmap out_path={:?}", out_path.as_ref().display()))?
+    };
 
     let compound_setup_params = compound_proof::SetupParams {
         vanilla_params: setup_params(
@@ -130,109 +128,43 @@ where
         _,
     >>::setup(&compound_setup_params)?;
 
-    // Copy cc pad to out_path
-    if Path::new(&pad_path).exists() {
-        fs::copy(&pad_path, &out_path).with_context(|| {
-            format!(
-                "could not copy pad_path={:?} to out_path={:?}",
-                pad_path,
-                out_path.as_ref().display()
-            )
-        })?;
+    trace!("building merkle tree for the original data");
+    let (config, comm_d) = measure_op(Operation::CommD, || -> Result<_> {
+        let base_tree_size = get_base_tree_size::<DefaultBinaryTree>(porep_config.sector_size)?;
+        let base_tree_leafs = get_base_tree_leafs::<DefaultBinaryTree>(base_tree_size)?;
+        ensure!(
+            compound_public_params.vanilla_params.graph.size() == base_tree_leafs,
+            "graph size and leaf size don't match"
+        );
 
-        fs::copy(&tree_path, &comm_d_path).with_context(|| {
-            format!(
-                "could not copy tree_path={:?} to comm_d_path={:?}",
-                tree_path,
-                comm_d_path
-            )
-        })?;
-    } else {
-        // Copy unsealed data to output location, where it will be sealed in place.
-        fs::copy(&in_path, &out_path).with_context(|| {
-            format!(
-                "could not copy in_path={:?} to out_path={:?}",
-                in_path.as_ref().display(),
-                out_path.as_ref().display()
-            )
-        })?;
-
-        let f_data = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&out_path)
-            .with_context(|| format!("could not open out_path={:?}", out_path.as_ref().display()))?;
-
-        // Zero-pad the data to the requested size by extending the underlying file if needed.
-        f_data.set_len(sector_bytes as u64)?;
-
-        let data = unsafe {
-            MmapOptions::new()
-                .map_mut(&f_data)
-                .with_context(|| format!("could not mmap out_path={:?}", out_path.as_ref().display()))?
-        };
-
-        trace!("building merkle tree for the original data");
-        let (config, comm_d) = measure_op(Operation::CommD, || -> Result<_> {
-            let base_tree_size = get_base_tree_size::<DefaultBinaryTree>(porep_config.sector_size)?;
-            let base_tree_leafs = get_base_tree_leafs::<DefaultBinaryTree>(base_tree_size)?;
-            ensure!(
-                compound_public_params.vanilla_params.graph.size() == base_tree_leafs,
-                "graph size and leaf size don't match"
-            );
-
-            trace!(
-                "seal phase 1: sector_size {}, base tree size {}, base tree leafs {}",
-                u64::from(porep_config.sector_size),
-                base_tree_size,
-                base_tree_leafs,
-            );
-
-            let mut config = StoreConfig::new(
-                cache_path.as_ref(),
-                CacheKey::CommDTree.to_string(),
-                default_rows_to_discard(base_tree_leafs, BINARY_ARITY),
-            );
-
-            let data_tree = create_base_merkle_tree::<BinaryMerkleTree<DefaultPieceHasher>>(
-                Some(config.clone()),
+        trace!(
+            "seal phase 1: sector_size {}, base tree size {}, base tree leafs {}",
+            u64::from(porep_config.sector_size),
+            base_tree_size,
             base_tree_leafs,
-                &data,
-            )?;
-            drop(data);
+        );
 
-            config.size = Some(data_tree.len());
-            let comm_d_root: Fr = data_tree.root().into();
-            let comm_d = commitment_from_fr(comm_d_root);
+        let mut config = StoreConfig::new(
+            cache_path.as_ref(),
+            CacheKey::CommDTree.to_string(),
+            default_rows_to_discard(base_tree_leafs, BINARY_ARITY),
+        );
 
-            drop(data_tree);
+        let data_tree = create_base_merkle_tree::<BinaryMerkleTree<DefaultPieceHasher>>(
+            Some(config.clone()),
+            base_tree_leafs,
+            &data,
+        )?;
+        drop(data);
 
-            fs::copy(&out_path, &pad_path).with_context(|| {
-                format!(
-                    "could not copy out_path={:?} to pad_path={:?}",
-                    out_path.as_ref().display(),
-                    pad_path
-                )
-            })?;
+        config.size = Some(data_tree.len());
+        let comm_d_root: Fr = data_tree.root().into();
+        let comm_d = commitment_from_fr(comm_d_root);
 
-            fs::copy(&comm_d_path, &tree_path).with_context(|| {
-                format!(
-                    "could not copy comm_d_path={:?} to tree_path={:?}",
-                    comm_d_path,
-                    tree_path
-                )
-            })?;
+        drop(data_tree);
 
-            Ok((config, comm_d))
-        })?;
-
-        SHARE_VARIABLE.lock().unwrap().config = config;
-        SHARE_VARIABLE.lock().unwrap().commitment = comm_d;
-
-    }
-
-    let config = SHARE_VARIABLE.lock().unwrap().config.clone();
-    let comm_d = SHARE_VARIABLE.lock().unwrap().commitment.clone();
+        Ok((config, comm_d))
+    })?;
 
     trace!("verifying pieces");
 
@@ -272,9 +204,9 @@ pub fn seal_pre_commit_phase2<R, S, Tree: 'static + MerkleTreeTrait>(
     cache_path: S,
     replica_path: R,
 ) -> Result<SealPreCommitOutput>
-where
-    R: AsRef<Path>,
-    S: AsRef<Path>,
+    where
+        R: AsRef<Path>,
+        S: AsRef<Path>,
 {
     info!("seal_pre_commit_phase2:start");
 
@@ -604,7 +536,7 @@ pub fn seal_commit_phase2<Tree: 'static + MerkleTreeTrait>(
         seed,
         &buf,
     )
-    .context("post-seal verification sanity check failed")?;
+        .context("post-seal verification sanity check failed")?;
 
     let out = SealCommitOutput { proof: buf };
 
@@ -792,7 +724,6 @@ pub fn aggregate_seal_commit_proofs<Tree: 'static + MerkleTreeTrait>(
     comm_rs: &[[u8; 32]],
     seeds: &[[u8; 32]],
     commit_outputs: &[SealCommitOutput],
-    aggregate_version: groth16::aggregate::AggregateVersion,
 ) -> Result<AggregateSnarkProof> {
     info!("aggregate_seal_commit_proofs:start");
 
@@ -813,7 +744,7 @@ pub fn aggregate_seal_commit_proofs<Tree: 'static + MerkleTreeTrait>(
                         &commit_output.proof[..],
                         &verifying_key,
                     )?
-                    .circuit_proofs,
+                        .circuit_proofs,
                 );
 
                 Ok(acc)
@@ -853,7 +784,6 @@ pub fn aggregate_seal_commit_proofs<Tree: 'static + MerkleTreeTrait>(
         &srs_prover_key,
         &hashed_seeds_and_comm_rs,
         proofs.as_slice(),
-        aggregate_version,
     )?;
     let mut aggregate_proof_bytes = Vec::new();
     aggregate_proof.write(&mut aggregate_proof_bytes)?;
@@ -879,7 +809,6 @@ pub fn verify_aggregate_seal_commit_proofs<Tree: 'static + MerkleTreeTrait>(
     comm_rs: &[[u8; 32]],
     seeds: &[[u8; 32]],
     commit_inputs: Vec<Vec<Fr>>,
-    aggregate_version: groth16::aggregate::AggregateVersion,
 ) -> Result<bool> {
     info!("verify_aggregate_seal_commit_proofs:start");
 
@@ -949,7 +878,6 @@ pub fn verify_aggregate_seal_commit_proofs<Tree: 'static + MerkleTreeTrait>(
         &hashed_seeds_and_comm_rs,
         commit_inputs.as_slice(),
         &aggregate_proof,
-        aggregate_version,
     )?;
     trace!("end verifying aggregate proof");
 
@@ -1187,7 +1115,7 @@ pub fn verify_batch_seal<Tree: 'static + MerkleTreeTrait>(
                 .expect("unknown sector size") as usize,
         },
     )
-    .map_err(Into::into);
+        .map_err(Into::into);
 
     info!("verify_batch_seal:finish");
     result

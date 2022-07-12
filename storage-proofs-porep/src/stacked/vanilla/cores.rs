@@ -129,85 +129,123 @@ fn get_core_by_index(topo: &Topology, index: CoreIndex) -> Result<&TopologyObjec
 }
 
 fn core_groups(cores_per_unit: usize, skip_cores: String) -> Option<Vec<Mutex<Vec<CoreIndex>>>> {
-    let topo = TOPOLOGY.lock().expect("poisoned lock");
+    // let topo = TOPOLOGY.lock().expect("poisoned lock");
+    //
+    // let a = topo.objects_with_type(&ObjectType::NUMANode)
+    //     .expect("objects_with_type failed");
+    //
+    // for b in a {
+    //     println!("{:?}", b.cpuset().unwrap());
+    //     // println!("{:?}",b.cpuset())
+    // }
+    //
+    // let core_depth = match topo.depth_or_below_for_type(&ObjectType::Core) {
+    //     Ok(depth) => depth,
+    //     Err(_) => return None,
+    // };
+    // let all_cores = topo
+    //     .objects_with_type(&ObjectType::Core)
+    //     .expect("objects_with_type failed");
+    // let core_count = all_cores.len();
+    //
+    // let mut cache_depth = core_depth;
+    // let mut cache_count = 1;
+    //
+    // while cache_depth > 0 {
+    //     let objs = topo.objects_at_depth(cache_depth);
+    //     let obj_count = objs.len();
+    //     if obj_count < core_count {
+    //         cache_count = obj_count;
+    //         break;
+    //     }
+    //
+    //     cache_depth -= 1;
+    // }
+    //
+    // assert_eq!(0, core_count % cache_count);
+    // let mut group_size = core_count / cache_count;
+    // let mut group_count = cache_count;
+    //
+    // if cache_count <= 1 {
+    //     // If there are not more than one shared caches, there is no benefit in trying to group cores by cache.
+    //     // In that case, prefer more groups so we can still bind cores and also get some parallelism.
+    //     // Create as many full groups as possible. The last group may not be full.
+    //     group_count = core_count / cores_per_unit;
+    //     group_size = cores_per_unit;
+    //
+    //     info!(
+    //         "found only {} shared cache(s), heuristically grouping cores into {} groups",
+    //         cache_count, group_count
+    //     );
+    // } else {
+    //     debug!(
+    //         "Cores: {}, Shared Caches: {}, cores per cache (group_size): {}",
+    //         core_count, cache_count, group_size
+    //     );
+    // }
+    //
+    // let skips: Vec<CoreIndex>;
+    // if skip_cores.eq("") {
+    //     skips = Vec::new();
+    // } else {
+    //     skips = skip_cores.split(",")
+    //         .into_iter()
+    //         .map(|core|CoreIndex(from_str::<usize>(core).unwrap()))
+    //         .collect::<Vec<_>>();
+    //     println!("{:?}",skips);
+    // }
+    //
+    // let core_groups = (0..group_count)
+    //     .map(|i| {
+    //         (0..group_size)
+    //             .map(|j| {
+    //                 let core_index = i * group_size + j;
+    //                 assert!(core_index < core_count);
+    //                 CoreIndex(core_index)
+    //             })
+    //             .collect::<Vec<_>>()
+    //     })
+    //     .collect::<Vec<_>>();
 
-    let a = topo.objects_with_type(&ObjectType::NUMANode)
-        .expect("objects_with_type failed");
-
-    for b in a {
-        println!("{:?}",b.cpuset())
-    }
-
-    let core_depth = match topo.depth_or_below_for_type(&ObjectType::Core) {
-        Ok(depth) => depth,
-        Err(_) => return None,
-    };
-    let all_cores = topo
-        .objects_with_type(&ObjectType::Core)
-        .expect("objects_with_type failed");
-    let core_count = all_cores.len();
-
-    let mut cache_depth = core_depth;
-    let mut cache_count = 1;
-
-    while cache_depth > 0 {
-        let objs = topo.objects_at_depth(cache_depth);
-        let obj_count = objs.len();
-        if obj_count < core_count {
-            cache_count = obj_count;
-            break;
-        }
-
-        cache_depth -= 1;
-    }
-
-    assert_eq!(0, core_count % cache_count);
-    let mut group_size = core_count / cache_count;
-    let mut group_count = cache_count;
-
-    if cache_count <= 1 {
-        // If there are not more than one shared caches, there is no benefit in trying to group cores by cache.
-        // In that case, prefer more groups so we can still bind cores and also get some parallelism.
-        // Create as many full groups as possible. The last group may not be full.
-        group_count = core_count / cores_per_unit;
-        group_size = cores_per_unit;
-
-        info!(
-            "found only {} shared cache(s), heuristically grouping cores into {} groups",
-            cache_count, group_count
-        );
-    } else {
-        debug!(
-            "Cores: {}, Shared Caches: {}, cores per cache (group_size): {}",
-            core_count, cache_count, group_size
-        );
-    }
-
-    let skips: Vec<CoreIndex>;
-    if skip_cores.eq("") {
-        skips = Vec::new();
-    } else {
-        skips = skip_cores.split(",")
-            .into_iter()
-            .map(|core|CoreIndex(from_str::<usize>(core).unwrap()))
-            .collect::<Vec<_>>();
-        println!("{:?}",skips);
-    }
-
-    let core_groups = (0..group_count)
-        .map(|i| {
-            (0..group_size)
-                .map(|j| {
-                    let core_index = i * group_size + j;
-                    assert!(core_index < core_count);
-                    CoreIndex(core_index)
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let custom_groups = vec![
+        // 实核
+        vec![CoreIndex(0),CoreIndex(1),CoreIndex(2),CoreIndex(3)],
+        vec![CoreIndex(4),CoreIndex(5),CoreIndex(6),CoreIndex(7)],
+        vec![CoreIndex(8),CoreIndex(9),CoreIndex(10),CoreIndex(11)],
+        vec![CoreIndex(12),CoreIndex(13),CoreIndex(14),CoreIndex(15)],
+        // GPU0 vec![CoreIndex(16),CoreIndex(17),CoreIndex(18),CoreIndex(19)],
+        vec![CoreIndex(20),CoreIndex(21),CoreIndex(22),CoreIndex(23)],
+        vec![CoreIndex(24),CoreIndex(25),CoreIndex(26),CoreIndex(27)],
+        vec![CoreIndex(28),CoreIndex(29),CoreIndex(30),CoreIndex(31)],
+        // GPU1 vec![CoreIndex(32),CoreIndex(33),CoreIndex(34),CoreIndex(35)],
+        vec![CoreIndex(36),CoreIndex(37),CoreIndex(38),CoreIndex(39)],
+        vec![CoreIndex(40),CoreIndex(41),CoreIndex(42),CoreIndex(43)],
+        vec![CoreIndex(44),CoreIndex(45),CoreIndex(46),CoreIndex(47)],
+        vec![CoreIndex(48),CoreIndex(49),CoreIndex(50),CoreIndex(51)],
+        vec![CoreIndex(52),CoreIndex(53),CoreIndex(54),CoreIndex(55)],
+        vec![CoreIndex(56),CoreIndex(57),CoreIndex(58),CoreIndex(59)],
+        vec![CoreIndex(60),CoreIndex(61),CoreIndex(62),CoreIndex(63)],
+        // 虚核
+        vec![CoreIndex(64),CoreIndex(65),CoreIndex(66),CoreIndex(67)],
+        vec![CoreIndex(68),CoreIndex(69),CoreIndex(70),CoreIndex(71)],
+        vec![CoreIndex(72),CoreIndex(73),CoreIndex(74),CoreIndex(75)],
+        vec![CoreIndex(76),CoreIndex(77),CoreIndex(78),CoreIndex(79)],
+        // GPU0 vec![CoreIndex(80),CoreIndex(81),CoreIndex(82),CoreIndex(83)],
+        vec![CoreIndex(84),CoreIndex(85),CoreIndex(86),CoreIndex(87)],
+        vec![CoreIndex(88),CoreIndex(89),CoreIndex(90),CoreIndex(91)],
+        vec![CoreIndex(92),CoreIndex(93),CoreIndex(94),CoreIndex(95)],
+        // GPU1 vec![CoreIndex(96),CoreIndex(97),CoreIndex(98),CoreIndex(99)],
+        vec![CoreIndex(100),CoreIndex(101),CoreIndex(102),CoreIndex(103)],
+        vec![CoreIndex(104),CoreIndex(105),CoreIndex(106),CoreIndex(107)],
+        vec![CoreIndex(108),CoreIndex(109),CoreIndex(110),CoreIndex(111)],
+        vec![CoreIndex(112),CoreIndex(113),CoreIndex(114),CoreIndex(115)],
+        vec![CoreIndex(116),CoreIndex(117),CoreIndex(118),CoreIndex(119)],
+        vec![CoreIndex(120),CoreIndex(121),CoreIndex(122),CoreIndex(123)],
+        vec![CoreIndex(124),CoreIndex(125),CoreIndex(126),CoreIndex(127)],
+    ];
 
     Some(
-        core_groups
+        custom_groups
             .iter()
             .filter(|group| !skips.contains(group.split_first().unwrap().0))
             .map(|group| Mutex::new(group.clone()))
