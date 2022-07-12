@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use anyhow::{ensure, Context, Result};
 use bellperson::groth16;
-use bincode::{Config, deserialize, serialize};
+use bincode::{deserialize, serialize};
 use blstrs::{Bls12, Scalar as Fr};
 use filecoin_hashers::{Domain, Hasher};
 use log::{info, trace};
@@ -27,7 +27,6 @@ use storage_proofs_core::{
     Data,
     settings::SETTINGS,
 };
-use storage_proofs_core::compound_proof::PublicParams;
 use storage_proofs_porep::stacked::{
     self, generate_replica_id, ChallengeRequirements, StackedCompound, StackedDrg, Tau,
     TemporaryAux, TemporaryAuxCache,
