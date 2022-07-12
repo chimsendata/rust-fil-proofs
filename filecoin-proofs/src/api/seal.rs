@@ -140,7 +140,7 @@ where
             )
         })?;
 
-        fs::copy(&tree_path, comm_d_path).with_context(|| {
+        fs::copy(&tree_path, &comm_d_path).with_context(|| {
             format!(
                 "could not copy tree_path={:?} to comm_d_path={:?}",
                 tree_path,
