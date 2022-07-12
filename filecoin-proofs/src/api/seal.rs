@@ -106,9 +106,9 @@ where
 
     fs::metadata(&out_path).with_context(|| format!("could not read out_path={:?}", out_path.as_ref().display()))?;
 
-
-    let tree_path = format!("{}/{}", SETTINGS.merkle_tree_cache.clone(), String::from("tree.dat"));
-    let pad_path = format!("{}/{}", SETTINGS.merkle_tree_cache.clone(), String::from("pad.dat"));
+    let tree_parent = SETTINGS.merkle_tree_cache.clone();
+    let tree_path = format!("{}/{}", tree_parent, String::from("tree.dat"));
+    let pad_path = format!("{}/{}", tree_parent, String::from("pad.dat"));
     let comm_d_path = format!("{}/{}", cache_path.as_ref().to_str().unwrap(), "sc-02-data-tree-d.dat");
     println!("{}", tree_path);
     println!("{}", pad_path);
