@@ -215,7 +215,7 @@ where
             fs::copy(comm_d_path, &tree_path).with_context(|| {
                 format!(
                     "could not copy comm_d_path={:?} to tree_path={:?}",
-                    comm_d_path.as_ref().display(),
+                    comm_d_path,
                     tree_path
                 )
             })?;
