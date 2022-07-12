@@ -132,7 +132,7 @@ where
         fs::copy(&pad_path, &out_path).with_context(|| {
             format!(
                 "could not copy pad_path={:?} to out_path={:?}",
-                pad_path.as_ref().display(),
+                pad_path,
                 out_path.as_ref().display()
             )
         })?;
@@ -208,7 +208,7 @@ where
                 format!(
                     "could not copy out_path={:?} to pad_path={:?}",
                     out_path.as_ref().display(),
-                    pad_path.as_ref().display()
+                    pad_path
                 )
             })?;
 
