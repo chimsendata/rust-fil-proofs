@@ -109,7 +109,10 @@ where
 
     let tree_path = format!("{}/{}", SETTINGS.merkle_tree_cache, "tree.dat");
     let pad_path = format!("{}/{}", SETTINGS.merkle_tree_cache, "pad.dat");
-    let comm_d_path = cache_path.as_ref().with_file_name("sc-02-data-tree-d.dat").to_str().unwrap();
+    let comm_d_path = format!("{}/{}", cache_path.as_ref().to_str().unwrap(), "sc-02-data-tree-d.dat");
+    println!("{}", tree_path);
+    println!("{}", pad_path);
+    println!("{}", comm_d_path);
 
     let compound_setup_params = compound_proof::SetupParams {
         vanilla_params: setup_params(
