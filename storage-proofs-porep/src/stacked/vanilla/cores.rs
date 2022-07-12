@@ -247,7 +247,7 @@ fn core_groups(cores_per_unit: usize, skip_cores: String) -> Option<Vec<Mutex<Ve
     Some(
         custom_groups
             .iter()
-            .filter(|group| !skips.contains(group.split_first().unwrap().0))
+            // .filter(|group| !skips.contains(group.split_first().unwrap().0))
             .map(|group| Mutex::new(group.clone()))
             .collect::<Vec<_>>(),
     )
