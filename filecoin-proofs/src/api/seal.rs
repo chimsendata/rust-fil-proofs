@@ -141,7 +141,7 @@ where
             format!(
                 "could not copy tree_path={:?} to comm_d_path={:?}",
                 tree_path,
-                comm_d_path.as_ref().display()
+                comm_d_path
             )
         })?;
     } else {
