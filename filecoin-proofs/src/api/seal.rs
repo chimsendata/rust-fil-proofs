@@ -107,8 +107,8 @@ where
     fs::metadata(&out_path).with_context(|| format!("could not read out_path={:?}", out_path.as_ref().display()))?;
 
     let tree_parent = SETTINGS.merkle_tree_cache.clone();
-    let tree_path = format!("{}/{}", tree_parent, String::from("tree.dat"));
-    let pad_path = format!("{}/{}", tree_parent, String::from("pad.dat"));
+    let tree_path = format!("{}/{}", tree_parent, "tree.dat");
+    let pad_path = format!("{}/{}", tree_parent, "tree.dat");
     let comm_d_path = format!("{}/{}", cache_path.as_ref().to_str().unwrap(), "sc-02-data-tree-d.dat");
     println!("{}", tree_path);
     println!("{}", pad_path);
@@ -131,7 +131,7 @@ where
     >>::setup(&compound_setup_params)?;
 
     // Copy cc pad to out_path
-    if fs::metadata(pad_path).is_ok() && fs::metadata(tree_path).is_ok() {
+    if Path::new(&pad_path).exists() {
         fs::copy(&pad_path, &out_path).with_context(|| {
             format!(
                 "could not copy pad_path={:?} to out_path={:?}",
