@@ -207,8 +207,8 @@ fn core_groups(core_plan: String) -> Option<Vec<Mutex<Vec<CoreIndex>>>> {
     //     })
     //     .collect::<Vec<_>>();
 
-    let custom_groups = match core_plan {
-        String::from("DELL7525") => {
+    let custom_groups = match core_plan.as_str() {
+        "DELL7525" => {
             vec![
                 // 实核
                 vec![CoreIndex(0),CoreIndex(1),CoreIndex(2),CoreIndex(3)],
