@@ -135,7 +135,7 @@ fn core_groups(cores_per_unit: usize, skip_cores: String) -> Option<Vec<Mutex<Ve
         .expect("objects_with_type failed");
 
     for b in a {
-        println!(b.cpuset())
+        println!("{:?}",b.cpuset())
     }
 
     let core_depth = match topo.depth_or_below_for_type(&ObjectType::Core) {
