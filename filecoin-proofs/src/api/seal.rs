@@ -27,6 +27,7 @@ use storage_proofs_core::{
     Data,
     settings::SETTINGS,
 };
+use storage_proofs_core::compound_proof::PublicParams;
 use storage_proofs_porep::stacked::{
     self, generate_replica_id, ChallengeRequirements, StackedCompound, StackedDrg, Tau,
     TemporaryAux, TemporaryAuxCache,
@@ -102,35 +103,14 @@ where
     );
 
     let sector_bytes = usize::from(PaddedBytesAmount::from(porep_config));
-    fs::metadata(&in_path)
-        .with_context(|| format!("could not read in_path={:?})", in_path.as_ref().display()))?;
+    fs::metadata(&in_path).with_context(|| format!("could not read in_path={:?})", in_path.as_ref().display()))?;
 
-    fs::metadata(&out_path)
-        .with_context(|| format!("could not read out_path={:?}", out_path.as_ref().display()))?;
+    fs::metadata(&out_path).with_context(|| format!("could not read out_path={:?}", out_path.as_ref().display()))?;
 
-    // Copy unsealed data to output location, where it will be sealed in place.
-    fs::copy(&in_path, &out_path).with_context(|| {
-        format!(
-            "could not copy in_path={:?} to out_path={:?}",
-            in_path.as_ref().display(),
-            out_path.as_ref().display()
-        )
-    })?;
 
-    let f_data = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&out_path)
-        .with_context(|| format!("could not open out_path={:?}", out_path.as_ref().display()))?;
-
-    // Zero-pad the data to the requested size by extending the underlying file if needed.
-    f_data.set_len(sector_bytes as u64)?;
-
-    let data = unsafe {
-        MmapOptions::new()
-            .map_mut(&f_data)
-            .with_context(|| format!("could not mmap out_path={:?}", out_path.as_ref().display()))?
-    };
+    let tree_path = format!("{}/{}", SETTINGS.merkle_tree_cache, "tree.dat");
+    let pad_path = format!("{}/{}", SETTINGS.merkle_tree_cache, "pad.dat");
+    let comm_d_path = cache_path.as_ref().with_file_name("sc-02-data-tree-d.dat").to_str().unwrap();
 
     let compound_setup_params = compound_proof::SetupParams {
         vanilla_params: setup_params(
@@ -148,46 +128,106 @@ where
         _,
     >>::setup(&compound_setup_params)?;
 
-    trace!("building merkle tree for the original data");
-    let (config, comm_d) = measure_op(Operation::CommD, || -> Result<_> {
-        let base_tree_size = get_base_tree_size::<DefaultBinaryTree>(porep_config.sector_size)?;
-        let base_tree_leafs = get_base_tree_leafs::<DefaultBinaryTree>(base_tree_size)?;
-        ensure!(
-            compound_public_params.vanilla_params.graph.size() == base_tree_leafs,
-            "graph size and leaf size don't match"
-        );
+    // Copy cc pad to out_path
+    if fs::metadata(pad_path).is_ok() && fs::metadata(tree_path).is_ok() {
+        fs::copy(&pad_path, &out_path).with_context(|| {
+            format!(
+                "could not copy pad_path={:?} to out_path={:?}",
+                pad_path.as_ref().display(),
+                out_path.as_ref().display()
+            )
+        })?;
 
-        trace!(
-            "seal phase 1: sector_size {}, base tree size {}, base tree leafs {}",
-            u64::from(porep_config.sector_size),
-            base_tree_size,
+        fs::copy(&tree_path, comm_d_path).with_context(|| {
+            format!(
+                "could not copy tree_path={:?} to comm_d_path={:?}",
+                tree_path.as_ref().display(),
+                comm_d_path.as_ref().display()
+            )
+        })?;
+    } else {
+        // Copy unsealed data to output location, where it will be sealed in place.
+        fs::copy(&in_path, &out_path).with_context(|| {
+            format!(
+                "could not copy in_path={:?} to out_path={:?}",
+                in_path.as_ref().display(),
+                out_path.as_ref().display()
+            )
+        })?;
+
+        let f_data = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&out_path)
+            .with_context(|| format!("could not open out_path={:?}", out_path.as_ref().display()))?;
+
+        // Zero-pad the data to the requested size by extending the underlying file if needed.
+        f_data.set_len(sector_bytes as u64)?;
+
+        let data = unsafe {
+            MmapOptions::new()
+                .map_mut(&f_data)
+                .with_context(|| format!("could not mmap out_path={:?}", out_path.as_ref().display()))?
+        };
+
+        trace!("building merkle tree for the original data");
+        let (config, comm_d) = measure_op(Operation::CommD, || -> Result<_> {
+            let base_tree_size = get_base_tree_size::<DefaultBinaryTree>(porep_config.sector_size)?;
+            let base_tree_leafs = get_base_tree_leafs::<DefaultBinaryTree>(base_tree_size)?;
+            ensure!(
+                compound_public_params.vanilla_params.graph.size() == base_tree_leafs,
+                "graph size and leaf size don't match"
+            );
+
+            trace!(
+                "seal phase 1: sector_size {}, base tree size {}, base tree leafs {}",
+                u64::from(porep_config.sector_size),
+                base_tree_size,
+                base_tree_leafs,
+            );
+
+            let mut config = StoreConfig::new(
+                cache_path.as_ref(),
+                CacheKey::CommDTree.to_string(),
+                default_rows_to_discard(base_tree_leafs, BINARY_ARITY),
+            );
+
+            let data_tree = create_base_merkle_tree::<BinaryMerkleTree<DefaultPieceHasher>>(
+                Some(config.clone()),
             base_tree_leafs,
-        );
+                &data,
+            )?;
+            drop(data);
 
-        let mut config = StoreConfig::new(
-            cache_path.as_ref(),
-            CacheKey::CommDTree.to_string(),
-            default_rows_to_discard(base_tree_leafs, BINARY_ARITY),
-        );
+            config.size = Some(data_tree.len());
+            let comm_d_root: Fr = data_tree.root().into();
+            let comm_d = commitment_from_fr(comm_d_root);
 
-        let data_tree = create_base_merkle_tree::<BinaryMerkleTree<DefaultPieceHasher>>(
-            Some(config.clone()),
-            base_tree_leafs,
-            &data,
-        )?;
-        drop(data);
+            drop(data_tree);
 
-        config.size = Some(data_tree.len());
-        let comm_d_root: Fr = data_tree.root().into();
-        let comm_d = commitment_from_fr(comm_d_root);
+            fs::copy(&out_path, &pad_path).with_context(|| {
+                format!(
+                    "could not copy out_path={:?} to pad_path={:?}",
+                    out_path.as_ref().display(),
+                    pad_path.as_ref().display()
+                )
+            })?;
 
-        drop(data_tree);
+            fs::copy(comm_d_path, &tree_path).with_context(|| {
+                format!(
+                    "could not copy comm_d_path={:?} to tree_path={:?}",
+                    comm_d_path.as_ref().display(),
+                    tree_path.as_ref().display()
+                )
+            })?;
 
-        Ok((config, comm_d))
-    })?;
+            Ok((config, comm_d))
+        })?;
 
-    SHARE_VARIABLE.lock().unwrap().config = config;
-    SHARE_VARIABLE.lock().unwrap().commitment = comm_d;
+        SHARE_VARIABLE.lock().unwrap().config = config;
+        SHARE_VARIABLE.lock().unwrap().commitment = comm_d;
+
+    }
 
     let config = SHARE_VARIABLE.lock().unwrap().config.clone();
     let comm_d = SHARE_VARIABLE.lock().unwrap().commitment.clone();
